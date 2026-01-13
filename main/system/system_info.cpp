@@ -1,6 +1,7 @@
 #include "system_info.h"
 #include "log_app.h"
 #include <esp_system.h>
+#include "config_app.h"
 
 #define TAG "SYS"
 
@@ -45,4 +46,12 @@ esp_reset_reason_t SYSTEM_ResetReason()
   }
 
   return reset_reason;
+}
+
+void SYSTEM_Restart(bool direct)
+{
+  if (direct == false) {
+    vTaskDelay(pdMS_TO_TICKS(5000));
+  }
+  esp_restart();
 }

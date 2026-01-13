@@ -59,9 +59,35 @@ void DISPLAY_Init()
 {
   _lcd.init();
   _lcd.setBrightness(200);
+
+  DISPLAY_ClearScreen();
 }
 
-void DISPLAY_FillScreen()
+void DISPLAY_ClearScreen()
 {
-  _lcd.fillScreen(TFT_BLUE);
+  _lcd.fillScreen(TFT_BLACK);
+}
+
+void DISPLAY_SetAddrWindow(int32_t x, int32_t y, int32_t w, int32_t h)
+{
+  _lcd.setAddrWindow(x, y, w, h);
+}
+
+void DISPLAY_StartWriteDma(int32_t x, int32_t y, int32_t w, int32_t h)
+{
+  _lcd.setAddrWindow(x, y, w, h);
+  _lcd.startWrite();
+}
+
+void DISPLAY_WaitDMA() {
+}
+
+void DISPLAY_EndWrite()
+{
+  _lcd.endWrite();
+}
+
+void DISPLAY_PushPixelsDMA(const uint16_t* pixels, uint32_t len, bool swap)
+{
+  _lcd.pushPixelsDMA(pixels, len, swap);
 }
