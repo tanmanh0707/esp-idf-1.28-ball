@@ -31,7 +31,7 @@ void GIF_Init()
                                             TASK_GIFPLAYER_PRIORITY,
                                             TASK_NO_HANDLER,
                                             TASK_GIFPLAYER_CORE);
-  if (ret != ESP_OK) {
+  if (ret != pdTRUE) {
     log_e("GifPlayer Task Create failed!");
     SYSTEM_Restart();
   }
