@@ -13,3 +13,8 @@
 #define TASK_GIFPLAYER_PRIORITY                             3
 #define TASK_GIFPLAYER_CORE                                 0
 #define TASK_GIFPLAYER_QUEUE_SIZE                           16
+
+#define TASK_DBASYNC_STACK_SIZE                             STACK_SIZE_4KB
+#define TASK_DBASYNC_PRIORITY                               5
+#define TASK_DBASYNC_CORE                                   0
+#define TASK_DBASYNC_QUEUE_SIZE                             10

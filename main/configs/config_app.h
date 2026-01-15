@@ -14,6 +14,9 @@
 #include "log_app.h"
 #include "system_info.h"
 
+#define CONFIG_SDCARD_MOUNT_POINT     "/sd"
+#define CONFIG_SDCARD_MOUNT_RETRY     3
+
 /* Application */
 #define BLOCKING                      true
 #define NONE_BLOCKING                 false

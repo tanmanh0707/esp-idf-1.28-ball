@@ -55,6 +55,20 @@ public:
 
 static LGFX _lcd;
 
+int LocalGetDatum(TextAlign_e align)
+{
+  int datum = 0;
+
+  switch (align)
+  {
+    case TEXT_ALIGN_LEFT: datum = TL_DATUM; break;
+    case TEXT_ALIGN_RIGHT: datum = TR_DATUM; break;
+    case TEXT_ALIGN_CENTER: datum = TC_DATUM; break;
+  }
+
+  return datum;
+}
+
 void DISPLAY_Init()
 {
   _lcd.init();
@@ -66,6 +80,11 @@ void DISPLAY_Init()
 void DISPLAY_ClearScreen()
 {
   _lcd.fillScreen(TFT_BLACK);
+}
+
+void DISPLAY_FillScreen(int32_t color)
+{
+  _lcd.fillScreen(color);
 }
 
 void DISPLAY_SetAddrWindow(int32_t x, int32_t y, int32_t w, int32_t h)
@@ -90,4 +109,27 @@ void DISPLAY_EndWrite()
 void DISPLAY_PushPixelsDMA(const uint16_t* pixels, uint32_t len, bool swap)
 {
   _lcd.pushPixelsDMA(pixels, len, swap);
+}
+
+void DISPLAY_DrawText(const char *text, uint16_t x, uint16_t y, TextAlign_e align, TextSize_e size, uint16_t color, uint16_t bg_color)
+{
+  if (text == NULL) {
+    return;
+  }
+
+  _lcd.clear();
+  _lcd.setTextDatum(LocalGetDatum(align));
+  _lcd.setTextColor(color, bg_color);
+  _lcd.setTextSize(size);
+  _lcd.drawString(text, x, y);
+}
+
+void DISPLAY_FillRect(int32_t x, int32_t y, int32_t w, int32_t h, int32_t color)
+{
+  _lcd.fillRect(x, y, w, h, color);
+}
+
+void DISPLAY_FillCircle(int32_t x, int32_t y, int32_t r, int32_t color)
+{
+  _lcd.fillCircle(x, y, r, color);
 }
