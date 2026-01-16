@@ -99,6 +99,7 @@ void DISPLAY_StartWriteDma(int32_t x, int32_t y, int32_t w, int32_t h)
 }
 
 void DISPLAY_WaitDMA() {
+  _lcd.waitDMA();
 }
 
 void DISPLAY_EndWrite()
@@ -109,6 +110,15 @@ void DISPLAY_EndWrite()
 void DISPLAY_PushPixelsDMA(const uint16_t* pixels, uint32_t len, bool swap)
 {
   _lcd.pushPixelsDMA(pixels, len, swap);
+}
+
+bool DISPLAY_PushPixels(int16_t x, int16_t y, int16_t width, int16_t height, uint16_t *pixels) {
+  _lcd.startWrite();
+  _lcd.setAddrWindow(x, y, width, height);
+  _lcd.pushPixels(pixels, width * height);
+  _lcd.endWrite();
+
+  return true;
 }
 
 void DISPLAY_DrawText(const char *text, uint16_t x, uint16_t y, TextAlign_e align, TextSize_e size, uint16_t color, uint16_t bg_color)

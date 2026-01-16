@@ -31,4 +31,5 @@ void DISPLAY_SetAddrWindow(int32_t x, int32_t y, int32_t w, int32_t h);
 void DISPLAY_StartWriteDma(int32_t x, int32_t y, int32_t w, int32_t h);
 void DISPLAY_WaitDMA();
 void DISPLAY_EndWrite();
+bool DISPLAY_PushPixels(int16_t x, int16_t y, int16_t width, int16_t height, uint16_t *pixels);
 void DISPLAY_PushPixelsDMA(const uint16_t* pixels, uint32_t len, bool swap = false);
