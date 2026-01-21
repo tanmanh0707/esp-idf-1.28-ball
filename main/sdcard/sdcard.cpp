@@ -87,6 +87,19 @@ bool SDCARD_Mounted() {
   return _sdcardMounted;
 }
 
+bool SDCARD_GetFileSize(const char *file_path, size_t &size) {
+  LockGuard guard(_sdMutex);
+  std::string full_path = std::string(CONFIG_SDCARD_MOUNT_POINT) + file_path;
+
+  struct stat st;
+  int result = stat(full_path.c_str(), &st);
+  if (result == 0 && S_ISREG(st.st_mode)) {
+    size = st.st_size;
+    return true;
+  }
+  return false;
+}
+
 std::string SDCARD_GetFileExtension(const std::string& filename) {
   size_t dot_pos = filename.rfind('.');
   if (dot_pos == std::string::npos) {
@@ -241,7 +254,7 @@ esp_err_t SDCARD_DecodeJpegAndDisplay(const uint8_t *jpeg_data, size_t jpeg_size
   return ESP_OK;
 }
 
-esp_err_t SDCARD_DisplayImage(const char *file_path)
+esp_err_t SDCARD_ReadFile(const char *file_path, uint8_t **data, size_t &size)
 {
   if (!_sdcardMounted) {
     log_e("SD card not mounted");
@@ -259,34 +272,65 @@ esp_err_t SDCARD_DisplayImage(const char *file_path)
   }
 
   size_t file_size = st.st_size;
-  log_i("Reading JPEG: %s (%zu bytes)", full_path.c_str(), file_size);
+  log_i("Reading file: %s (%zu bytes)", full_path.c_str(), file_size);
 
-  // Allocate buffer in PSRAM
-  uint8_t *jpeg_data = (uint8_t *)heap_caps_malloc(file_size, MALLOC_CAP_SPIRAM);
-  if (jpeg_data == NULL) {
-    log_e("Failed to allocate %zu bytes in PSRAM", file_size);
-    return ESP_ERR_NO_MEM;
+  uint8_t *buffer = *data;
+  bool allocated = false;
+
+  if (buffer == NULL) {
+    // Allocate buffer in PSRAM
+    buffer = (uint8_t *)ps_malloc(file_size);
+    if (buffer == NULL) {
+      log_e("Failed to allocate %zu bytes in PSRAM", file_size);
+      return ESP_ERR_NO_MEM;
+    }
+    allocated = true;
+  } else {
+    // Use pre-allocated buffer, check size
+    if (size < file_size) {
+      log_e("Buffer too small: %zu < %zu", size, file_size);
+      return ESP_ERR_INVALID_SIZE;
+    }
   }
 
   // Read file
   FILE *f = fopen(full_path.c_str(), "rb");
   if (f == NULL) {
     log_e("Failed to open file: %s", full_path.c_str());
-    heap_caps_free(jpeg_data);
+    if (allocated) {
+      ps_free(buffer);
+    }
     return ESP_ERR_NOT_FOUND;
   }
 
-  size_t bytes_read = fread(jpeg_data, 1, file_size, f);
+  size_t bytes_read = fread(buffer, 1, file_size, f);
   fclose(f);
 
   if (bytes_read != file_size) {
     log_e("Read %zu bytes, expected %zu", bytes_read, file_size);
-    heap_caps_free(jpeg_data);
+    if (allocated) {
+      ps_free(buffer);
+    }
     return ESP_FAIL;
   }
 
+  *data = buffer;
+  size = file_size;
+  return ESP_OK;
+}
+
+esp_err_t SDCARD_DisplayImage(const char *file_path)
+{
+  uint8_t *jpeg_data = NULL;
+  size_t file_size = 0;
+
+  esp_err_t ret = SDCARD_ReadFile(file_path, &jpeg_data, file_size);
+  if (ret != ESP_OK) {
+    return ret;
+  }
+
   // Decode and display
-  esp_err_t ret = SDCARD_DecodeJpegAndDisplay(jpeg_data, file_size);
+  ret = SDCARD_DecodeJpegAndDisplay(jpeg_data, file_size);
 
   heap_caps_free(jpeg_data);
   return ret;

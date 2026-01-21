@@ -7,7 +7,7 @@
 
 #define TAG "APP"
 #define SLIDESHOW_FOLDER "/images"
-#define SLIDESHOW_DELAY_MS 3000
+#define SLIDESHOW_DELAY_MS 60000
 
 Application::Application()
 {
@@ -40,6 +40,10 @@ void Application::Start() {
 
   size_t current_index = 0;
 
+  GIF_PlayPath("/gif/x_wing.gif");
+  while (1) {
+    vTaskDelay(pdMS_TO_TICKS(10000));
+  }
   while (1)
   {
     if (jpeg_files.empty()) {

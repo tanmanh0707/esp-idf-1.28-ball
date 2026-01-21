@@ -23,3 +23,4 @@ typedef enum {
 } GifLoop_e;
 
 void GIF_Init();
+void GIF_PlayPath(const char *path);

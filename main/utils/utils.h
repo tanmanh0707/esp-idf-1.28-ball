@@ -5,3 +5,4 @@
 
 void *ps_malloc(size_t size);
 void *ps_calloc(size_t n, size_t size);
+void ps_free(void *ptr);
