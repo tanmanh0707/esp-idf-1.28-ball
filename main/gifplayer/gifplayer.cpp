@@ -134,7 +134,8 @@ void gifplayer_task(void *arg)
             }
 
             if (ret) {
-              log_i("GIF Playing");
+              log_i("GIF Playing loop");
+              _loop = GIF_LOOP_INFINITE;
               LocalGifChangeState(GIF_PLAYING);
             } else {
               LocalGifChangeState(GIF_IDLE);
@@ -152,12 +153,15 @@ void gifplayer_task(void *arg)
       }
     }
 
+    static uint16_t pPixelsPingPong[2][1024];
     if (_state == GIF_PLAYING) {
-      if (_gif.playFrame(true, 0) > 0) {
+      if (_gif.playFrame(false, 0) > 0) {
+        int h, w;
+        int16_t drawX_ = 0, drawY_ = 0;
+        w = _gif.getCanvasWidth();
+        h = _gif.getCanvasHeight();
         uint16_t *pPixels;
         int iX, iY, fW, fH;
-        int w = _gif.getCanvasWidth();
-        int h = _gif.getCanvasHeight();
         iX = _gif.getFrameXOff();
         iY = _gif.getFrameYOff();
         fW = _gif.getFrameWidth();
@@ -166,15 +170,27 @@ void gifplayer_task(void *arg)
         pPixels = (uint16_t *)((uint8_t *)_framebuff + (w * h));
         pPixels += iX + (iY * w);
         
-        int16_t screenX = _drawX + iX;
-        int16_t screenY = _drawY + iY;
-
-        DISPLAY_StartWriteDma(_drawX + iX, _drawY + iY, fW, fH);
-        pPixels = (uint16_t *)((uint8_t *)_framebuff + (w * h));
-        pPixels += iX + (iY * w);
-        for (int y = 0; y < fH; y++) {
-          DISPLAY_PushPixelsDMA(pPixels, fW);
-          pPixels += w;
+        int16_t screenX = drawX_ + iX;
+        int16_t screenY = drawY_ + iY;
+        
+        // Ping-pong buffer rendering
+        size_t lineSize = fW * sizeof(uint16_t);
+        uint16_t *pPixelsLine = pPixels;
+        memcpy(pPixelsPingPong[0], pPixelsLine, lineSize);
+        pPixelsLine += w;
+        
+        int currentBuffer = 0;
+        int nextBuffer = 1;
+        
+        for (int16_t y = 0; y < fH; y++) {
+            int16_t currentScreenY = screenY + y;
+            DISPLAY_PushPixelsLineByLine(screenX, currentScreenY, fW, 1, pPixelsPingPong[currentBuffer]);
+            if (y + 1 < fH) {
+                memcpy(pPixelsPingPong[nextBuffer], pPixelsLine, lineSize);
+                pPixelsLine += w;
+            }
+            
+            std::swap(currentBuffer, nextBuffer);
         }
       } else {
         if (_loop == GIF_LOOP_INFINITE) {

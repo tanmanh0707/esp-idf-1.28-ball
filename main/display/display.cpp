@@ -92,6 +92,11 @@ void DISPLAY_SetAddrWindow(int32_t x, int32_t y, int32_t w, int32_t h)
   _lcd.setAddrWindow(x, y, w, h);
 }
 
+void DISPLAY_StartWrite()
+{
+  _lcd.startWrite();
+}
+
 void DISPLAY_StartWriteDma(int32_t x, int32_t y, int32_t w, int32_t h)
 {
   _lcd.setAddrWindow(x, y, w, h);
@@ -110,6 +115,22 @@ void DISPLAY_EndWrite()
 void DISPLAY_PushPixelsDMA(const uint16_t* pixels, uint32_t len, bool swap)
 {
   _lcd.pushPixelsDMA(pixels, len, swap);
+}
+
+bool DISPLAY_PushPixelsLineByLine(int16_t x, int16_t y, int16_t width, int16_t height, uint16_t *pixels)
+{
+  if (!pixels || width <= 0 || height <= 0)
+    return false;
+
+  _lcd.startWrite();
+  for (int row = 0; row < height; row++) {
+    _lcd.setAddrWindow(x, y + row, width, 1);
+    _lcd.pushPixelsDMA(pixels + row * width, width);
+    _lcd.waitDMA();
+  }
+  _lcd.endWrite();
+
+  return true;
 }
 
 bool DISPLAY_PushPixels(int16_t x, int16_t y, int16_t width, int16_t height, uint16_t *pixels) {
