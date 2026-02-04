@@ -11,6 +11,7 @@ set(SRC_DIRS_LIST
     "${CMAKE_CURRENT_LIST_DIR}/AnimatedGIF"
     "${CMAKE_CURRENT_LIST_DIR}/gifplayer"
     "${CMAKE_CURRENT_LIST_DIR}/sdcard"
+    "${CMAKE_CURRENT_LIST_DIR}/speaker"
     "${CMAKE_CURRENT_LIST_DIR}/lib/LovyanGFX/src/lgfx/v1"
     "${CMAKE_CURRENT_LIST_DIR}/lib/LovyanGFX/src/lgfx/v1/misc"
     "${CMAKE_CURRENT_LIST_DIR}/lib/LovyanGFX/src/lgfx/v1/panel"
@@ -29,6 +30,7 @@ set(INCLUDE_DIRS_LIST
     "${CMAKE_CURRENT_LIST_DIR}/AnimatedGIF"
     "${CMAKE_CURRENT_LIST_DIR}/gifplayer"
     "${CMAKE_CURRENT_LIST_DIR}/sdcard"
+    "${CMAKE_CURRENT_LIST_DIR}/speaker"
     "${CMAKE_CURRENT_LIST_DIR}/lib/LovyanGFX/src"
     "${CMAKE_CURRENT_LIST_DIR}/lib/LovyanGFX/src/lgfx/v1"
 )

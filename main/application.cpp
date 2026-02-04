@@ -3,6 +3,7 @@
 #include "display.h"
 #include "gifplayer.h"
 #include "sdcard.h"
+#include "speaker.h"
 #include "db.h"
 
 #define TAG "APP"
@@ -18,6 +19,7 @@ Application::~Application() {
 
 void Application::Start() {
   DB_Init();
+  Speaker::GetInstance()->GetAudioCodec()->Start();
   DISPLAY_Init();
   GIF_Init();
   SDCARD_Init();
@@ -40,9 +42,10 @@ void Application::Start() {
 
   size_t current_index = 0;
 
-  GIF_PlayPath("/gif/x_wing.gif");
+  GIF_PlayPath("/gif/pika_01.gif");
   while (1) {
-    vTaskDelay(pdMS_TO_TICKS(10000));
+    vTaskDelay(pdMS_TO_TICKS(5000));
+    // Speaker::GetInstance()->PlayFiller();
   }
   while (1)
   {
