@@ -42,6 +42,31 @@
 #define AUDIO_OUTPUT_SAMPLE_RATE                16000//24000
 #define AUDIO_CODEC_ES8311_ADDR                 ES8311_CODEC_DEFAULT_ADDR
 
+/* WiFi Configuration */
+#define CONFIG_WIFI_SSID                    "blackdragon_2.4"
+#define CONFIG_WIFI_PASSWORD                "07071992"
+#define CONFIG_WIFI_MAX_RETRY               5
+#define CONFIG_WIFI_CONNECT_TIMEOUT_MS      15000
+
+/* WiFi AP (config portal) */
+#define CONFIG_WIFI_AP_SSID                 "ESP32-Setup"
+#define CONFIG_WIFI_AP_CHANNEL              1
+#define CONFIG_WIFI_AP_MAX_CONN             4
+
+/* NTP Configuration */
+#define CONFIG_NTP_SERVER                   "pool.ntp.org"
+#define CONFIG_NTP_TIMEZONE                 "UTC-7"
+
+/* HomeScreen Configuration */
+#define CONFIG_HOMESCREEN_FOLDER            "/images"
+#define CONFIG_HOMESCREEN_IMAGE_INTERVAL_MS 60000
+
+/* Incoming Events Configuration */
+#define CONFIG_EVENTS_URL \
+    "https://script.google.com/macros/s/AKfycbwVKQzgvdtpKvMqds2vDujSFo5MMN7jmiI0WDkYK4H2rnKmT9IMIcLo5OFGZ73hoEP7ZA/exec?device=esp32-001&key=123456789"
+#define CONFIG_EVENTS_POLL_INTERVAL_MS      (60 * 60 * 1000)   /* 1 hour  — on success */
+#define CONFIG_EVENTS_RETRY_INTERVAL_MS     ( 5 * 60 * 1000)   /* 5 minutes — on failure */
+
 /* Application */
 #define BLOCKING                      true
 #define NONE_BLOCKING                 false

@@ -164,3 +164,8 @@ void DISPLAY_FillCircle(int32_t x, int32_t y, int32_t r, int32_t color)
 {
   _lcd.fillCircle(x, y, r, color);
 }
+
+void* DISPLAY_GetDevice()
+{
+  return static_cast<lgfx::LGFX_Device*>(&_lcd);
+}
