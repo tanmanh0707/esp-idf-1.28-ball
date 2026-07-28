@@ -7,7 +7,10 @@
 
 #define TAG "NTP"
 
-SemaphoreHandle_t NTPClient::_network_lock = nullptr;
+SemaphoreHandle_t  NTPClient::_network_lock = nullptr;
+EventGroupHandle_t NTPClient::_synced_event = nullptr;
+
+#define NTP_SYNCED_BIT  BIT0
 
 NTPClient& NTPClient::GetInstance() {
     static NTPClient instance;
@@ -19,6 +22,7 @@ NTPClient::NTPClient() : _initialized(false), _status(NTP_STATUS_IDLE) {}
 void NTPClient::time_sync_notification_cb(struct timeval* tv) {
     log_i("NTP time synchronized");
     GetInstance()._status = NTP_STATUS_SYNCED;
+    if (_synced_event) xEventGroupSetBits(_synced_event, NTP_SYNCED_BIT);
 }
 
 void NTPClient::InitSNTP() {
@@ -79,6 +83,7 @@ void NTPClient::Init() {
     _initialized  = true;
     _network_lock = xSemaphoreCreateBinary();
     xSemaphoreGive(_network_lock);
+    _synced_event = xEventGroupCreate();
     _status = NTP_STATUS_WIFI_CONNECTING;
     xTaskCreate(NTPTask, "ntp_task", 8192, this, 5, nullptr);
 }
@@ -94,6 +99,16 @@ void NTPClient::GiveNetworkLock() {
 
 bool NTPClient::WaitForWifi(uint32_t timeout_ms) {
     return WiFiManager::WaitForConnection(timeout_ms);
+}
+
+bool NTPClient::WaitForSync(uint32_t timeout_ms) {
+    if (!_synced_event) return false;
+    TickType_t ticks = (timeout_ms == portMAX_DELAY)
+                     ? portMAX_DELAY
+                     : pdMS_TO_TICKS(timeout_ms);
+    EventBits_t bits = xEventGroupWaitBits(_synced_event, NTP_SYNCED_BIT,
+                                            pdFALSE, pdTRUE, ticks);
+    return (bits & NTP_SYNCED_BIT) != 0;
 }
 
 bool NTPClient::GetTime(struct tm* timeinfo) {

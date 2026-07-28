@@ -1,14 +1,16 @@
 #include "homescreen.h"
 #include "ntpclient.h"
 #include "wifi.h"
-#include "incoming_events.h"
 #include "sdcard.h"
 #include "log_app.h"
 #include "LexendRegular.h"
 #include <esp_jpeg_dec.h>
 #include <esp_timer.h>
+#include <nvs.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <cstdlib>
+#include <algorithm>
 
 #define TAG "HOME"
 
@@ -164,6 +166,57 @@ void HomeScreen::DrawClock(const struct tm* timeinfo) {
     _clock_sprite.pushSprite(0, 0);
 }
 
+// ─── NVS helpers ─────────────────────────────────────────────────────────────
+static int nvs_load_int(const char* ns, const char* key, int def) {
+    char buf[8] = {};
+    nvs_handle_t h;
+    if (nvs_open(ns, NVS_READONLY, &h) != ESP_OK) return def;
+    size_t len = sizeof(buf);
+    bool ok = nvs_get_str(h, key, buf, &len) == ESP_OK;
+    nvs_close(h);
+    if (!ok || buf[0] == '\0') return def;
+    int v = atoi(buf);
+    return v > 0 ? v : def;
+}
+
+// ─── Task list screen ─────────────────────────────────────────────────────────
+void HomeScreen::DrawTasksScreen(const std::vector<IncomingTask_t>& tasks) {
+    static constexpr int MAX_TITLE = 22;   // chars before truncation
+
+    _clock_sprite.fillSprite(_clock_sprite.color565(8, 8, 20));
+
+    // Header
+    _clock_sprite.setFont(&lgfx::fonts::DejaVu18);
+    _clock_sprite.setTextColor(_clock_sprite.color565(0, 210, 210));
+    _clock_sprite.setTextDatum(lgfx::TC_DATUM);
+    _clock_sprite.drawString("TASKS", 120, 14);
+
+    // Divider line
+    _clock_sprite.drawFastHLine(35, 36, 170, _clock_sprite.color565(50, 50, 70));
+
+    // Task rows (Lexend_Regular20, 28 px row pitch)
+    _clock_sprite.loadFont(Lexend_Regular20);
+    _clock_sprite.setTextColor(TFT_WHITE);
+    _clock_sprite.setTextDatum(lgfx::ML_DATUM);
+
+    int n = (int)std::min(tasks.size(), (size_t)6);
+    for (int i = 0; i < n; i++) {
+        int y = 52 + i * 30;
+
+        // Bullet dot
+        _clock_sprite.fillCircle(26, y, 3, _clock_sprite.color565(0, 210, 210));
+
+        // Truncate long titles so they don't overflow the circle
+        const std::string& title = tasks[i].title;
+        std::string display = (title.length() > MAX_TITLE)
+                              ? title.substr(0, MAX_TITLE - 1) + "\xE2\x80\xA6"  // UTF-8 ellipsis
+                              : title;
+        _clock_sprite.drawString(display.c_str(), 36, y);
+    }
+    _clock_sprite.unloadFont();
+    _clock_sprite.pushSprite(0, 0);
+}
+
 // ─── Main loop ────────────────────────────────────────────────────────────────
 void HomeScreen::RunDigitalClockBg() {
     _bg_sprite.setPsram(true);
@@ -191,14 +244,28 @@ void HomeScreen::RunDigitalClockBg() {
     jpeg_files.insert(jpeg_files.end(), jpeg_ext.begin(), jpeg_ext.end());
     log_i("HomeScreen: %d JPEG image(s) found", (int)jpeg_files.size());
 
+    // Load durations from NVS (fall back to compile-time defaults)
+    int bg_dur   = nvs_load_int(CONFIG_HOMESCREEN_NVS_NS, CONFIG_HOMESCREEN_NVS_BG_DUR,
+                                CONFIG_HOMESCREEN_DEFAULT_BG_DUR);
+    int task_dur = nvs_load_int(CONFIG_HOMESCREEN_NVS_NS, CONFIG_HOMESCREEN_NVS_TASK_DUR,
+                                CONFIG_HOMESCREEN_DEFAULT_TASK_DUR);
+    log_i("HomeScreen: bg_dur=%ds  task_dur=%ds", bg_dur, task_dur);
+
     size_t      current_index    = 0;
     int         last_minute      = -1;
     NTPStatus_e last_status      = NTP_STATUS_IDLE;
     WiFiState_e last_wifi_state  = WIFI_STATE_IDLE;
     int         last_ev_version  = -1;
+    int         last_task_ver    = -1;
     int64_t     last_image_ms    = -(int64_t)CONFIG_HOMESCREEN_IMAGE_INTERVAL_MS;
-    int         ip_ticks         = 0;   // countdown: show IP for N seconds after connect
+    int         ip_ticks         = 0;
     char        ip_display[20]   = {};
+
+    // Display state machine
+    bool display_tasks    = false;
+    int  normal_countdown = bg_dur;
+    int  task_countdown   = 0;
+    bool task_drawn       = false;
 
     NTPClient&      ntp    = NTPClient::GetInstance();
     IncomingEvents& events = IncomingEvents::GetInstance();
@@ -208,8 +275,8 @@ void HomeScreen::RunDigitalClockBg() {
         int64_t now_ms      = esp_timer_get_time() / 1000;
         bool    bg_reloaded = false;
 
-        // ── Rotate background image ───────────────────────────────────────────
-        if (!jpeg_files.empty() &&
+        // ── Rotate background image (NORMAL mode only) ────────────────────────
+        if (!display_tasks && !jpeg_files.empty() &&
             (now_ms - last_image_ms) >= (int64_t)CONFIG_HOMESCREEN_IMAGE_INTERVAL_MS) {
 
             if (LoadJpegToSprite(jpeg_files[current_index])) {
@@ -232,8 +299,10 @@ void HomeScreen::RunDigitalClockBg() {
 
         NTPStatus_e status         = ntp.GetStatus();
         int         ev_version     = events.GetVersion();
+        int         task_ver       = events.GetTasksVersion();
         bool        status_changed = (status != last_status);
         bool        events_changed = (ev_version != last_ev_version);
+        bool        tasks_changed  = (task_ver  != last_task_ver);
         bool        need_redraw    = bg_reloaded || status_changed || events_changed;
 
         // ── Show IP for 5 s immediately after WiFi connects ───────────────────
@@ -242,11 +311,40 @@ void HomeScreen::RunDigitalClockBg() {
             ip_ticks--;
             last_status     = status;
             last_ev_version = ev_version;
+            last_task_ver   = task_ver;
             vTaskDelay(pdMS_TO_TICKS(1000));
             continue;
         }
 
-        // ── Choose what to render based on NTP state ──────────────────────────
+        // ── TASKS mode ────────────────────────────────────────────────────────
+        if (display_tasks) {
+            if (!task_drawn || tasks_changed) {
+                auto task_list = events.GetTasks();
+                if (!task_list.empty()) {
+                    DrawTasksScreen(task_list);
+                    task_drawn    = true;
+                    last_task_ver = task_ver;
+                } else {
+                    // Tasks disappeared — bail back to NORMAL immediately
+                    display_tasks    = false;
+                    normal_countdown = bg_dur;
+                    task_drawn       = false;
+                }
+            }
+            if (display_tasks && --task_countdown <= 0) {
+                display_tasks    = false;
+                normal_countdown = bg_dur;
+                task_drawn       = false;
+                // Force background reload on next NORMAL iteration
+                last_image_ms = now_ms - (int64_t)CONFIG_HOMESCREEN_IMAGE_INTERVAL_MS;
+            }
+            last_status     = status;
+            last_ev_version = ev_version;
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            continue;
+        }
+
+        // ── NORMAL mode ───────────────────────────────────────────────────────
         switch (status) {
             case NTP_STATUS_WIFI_CONNECTING:
                 if (need_redraw) {
@@ -269,6 +367,17 @@ void HomeScreen::RunDigitalClockBg() {
                     DrawClock(&timeinfo);
                     last_minute = timeinfo.tm_min;
                 }
+                // Switch to TASKS when countdown expires (only if tasks exist)
+                if (--normal_countdown <= 0) {
+                    auto task_list = events.GetTasks();
+                    if (!task_list.empty()) {
+                        display_tasks  = true;
+                        task_countdown = task_dur;
+                        task_drawn     = false;
+                    } else {
+                        normal_countdown = bg_dur; // no tasks — keep looping NORMAL
+                    }
+                }
                 break;
             }
 
@@ -281,6 +390,7 @@ void HomeScreen::RunDigitalClockBg() {
 
         last_status     = status;
         last_ev_version = ev_version;
+        last_task_ver   = task_ver;
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }

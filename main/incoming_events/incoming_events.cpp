@@ -4,11 +4,22 @@
 #include <esp_http_client.h>
 #include <esp_crt_bundle.h>
 #include <cJSON.h>
+#include <nvs.h>
+#include <nvs_flash.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/semphr.h>
+#include <cstring>
+#include <cstdlib>
+#include <cstdio>
 
 #define TAG "EVT"
+
+#define GCAL_NVS_NAMESPACE  "gcal_cfg"
+#define GCAL_NVS_KEY_URL    "url"
+#define GCAL_NVS_KEY_DEVICE "device"
+#define GCAL_NVS_KEY_KEY    "key"
+#define GCAL_NVS_KEY_DAYS   "days"
 
 static constexpr int RESPONSE_BUF_SIZE = 8192;
 
@@ -42,7 +53,8 @@ IncomingEvents& IncomingEvents::GetInstance() {
 }
 
 IncomingEvents::IncomingEvents()
-    : _mutex(xSemaphoreCreateMutex()), _initialized(false), _version(0) {
+    : _mutex(xSemaphoreCreateMutex()), _initialized(false),
+      _version(0), _tasks_version(0) {
 }
 
 IncomingEvents::~IncomingEvents() {
@@ -65,31 +77,141 @@ std::vector<IncomingEvent_t> IncomingEvents::GetEvents() {
     return copy;
 }
 
+std::vector<IncomingTask_t> IncomingEvents::GetTasks() {
+    xSemaphoreTake(_mutex, portMAX_DELAY);
+    auto copy = _tasks;
+    xSemaphoreGive(_mutex);
+    return copy;
+}
+
+// ---------------------------------------------------------------------------
+// NVS config
+// ---------------------------------------------------------------------------
+bool IncomingEvents::LoadConfig(GCalConfig_t& cfg) {
+    memset(&cfg, 0, sizeof(cfg));
+    nvs_handle_t h;
+    if (nvs_open(GCAL_NVS_NAMESPACE, NVS_READONLY, &h) != ESP_OK) return false;
+
+    size_t url_len    = sizeof(cfg.url);
+    size_t device_len = sizeof(cfg.device);
+    size_t key_len    = sizeof(cfg.key);
+    size_t days_len   = sizeof(cfg.days);
+
+    bool ok = (nvs_get_str(h, GCAL_NVS_KEY_URL,    cfg.url,    &url_len)    == ESP_OK) &&
+              (nvs_get_str(h, GCAL_NVS_KEY_DEVICE,  cfg.device, &device_len) == ESP_OK) &&
+              (nvs_get_str(h, GCAL_NVS_KEY_KEY,     cfg.key,    &key_len)    == ESP_OK) &&
+              (nvs_get_str(h, GCAL_NVS_KEY_DAYS,    cfg.days,   &days_len)   == ESP_OK);
+    nvs_close(h);
+
+    if (!ok) return false;
+
+    // Validate: non-empty strings and days is a number in [1, 90]
+    if (cfg.url[0] == '\0' || cfg.device[0] == '\0' ||
+        cfg.key[0] == '\0' || cfg.days[0] == '\0') return false;
+
+    int days = atoi(cfg.days);
+    if (days < 1 || days > 90) return false;
+
+    return true;
+}
+
+void IncomingEvents::SaveConfig(const GCalConfig_t& cfg) {
+    nvs_handle_t h;
+    if (nvs_open(GCAL_NVS_NAMESPACE, NVS_READWRITE, &h) != ESP_OK) {
+        log_e("GCal: failed to open NVS for write");
+        return;
+    }
+    nvs_set_str(h, GCAL_NVS_KEY_URL,    cfg.url);
+    nvs_set_str(h, GCAL_NVS_KEY_DEVICE, cfg.device);
+    nvs_set_str(h, GCAL_NVS_KEY_KEY,    cfg.key);
+    nvs_set_str(h, GCAL_NVS_KEY_DAYS,   cfg.days);
+    nvs_commit(h);
+    nvs_close(h);
+    log_i("GCal config saved");
+}
+
+// ---------------------------------------------------------------------------
+// GTask NVS config
+// ---------------------------------------------------------------------------
+bool IncomingEvents::LoadGTaskConfig(GTaskConfig_t& cfg) {
+    memset(&cfg, 0, sizeof(cfg));
+    nvs_handle_t h;
+    if (nvs_open(CONFIG_GTASK_NVS_NS, NVS_READONLY, &h) != ESP_OK) return false;
+    size_t url_len   = sizeof(cfg.url);
+    size_t token_len = sizeof(cfg.token);
+    bool ok = (nvs_get_str(h, CONFIG_GTASK_NVS_URL,   cfg.url,   &url_len)   == ESP_OK) &&
+              (nvs_get_str(h, CONFIG_GTASK_NVS_TOKEN,  cfg.token, &token_len) == ESP_OK);
+    nvs_close(h);
+    if (!ok) return false;
+    return cfg.url[0] != '\0' && cfg.token[0] != '\0';
+}
+
+void IncomingEvents::SaveGTaskConfig(const GTaskConfig_t& cfg) {
+    nvs_handle_t h;
+    if (nvs_open(CONFIG_GTASK_NVS_NS, NVS_READWRITE, &h) != ESP_OK) {
+        log_e("GTask: failed to open NVS for write");
+        return;
+    }
+    nvs_set_str(h, CONFIG_GTASK_NVS_URL,   cfg.url);
+    nvs_set_str(h, CONFIG_GTASK_NVS_TOKEN, cfg.token);
+    nvs_commit(h);
+    nvs_close(h);
+    log_i("GTask config saved");
+}
+
 // ---------------------------------------------------------------------------
 // Background task
 // ---------------------------------------------------------------------------
 void IncomingEvents::EventTask(void* arg) {
     auto* self = static_cast<IncomingEvents*>(arg);
 
-    // Block until WiFi has an IP — triggered by the same IP_EVENT_STA_GOT_IP
-    // that the NTP task uses, so the first fetch happens the instant WiFi connects.
-    if (!NTPClient::WaitForWifi(portMAX_DELAY)) {
-        log_w("Events: WiFi never became ready");
+    // Load and validate Google Calendar config from NVS
+    GCalConfig_t gcal = {};
+    if (!LoadConfig(gcal)) {
+        log_w("Events: GCal config missing or invalid — fetching disabled");
         vTaskDelete(nullptr);
         return;
     }
 
-    log_i("Events: WiFi ready, waiting for network lock");
+    // Build full URL: base?device=X&key=Y&days=Z
+    char full_url[512];
+    snprintf(full_url, sizeof(full_url), "%s?device=%s&key=%s&days=%s",
+             gcal.url, gcal.device, gcal.key, gcal.days);
+    log_i("Events URL: %s", full_url);
+
+    // Block until NTP sync completes — guarantees time is correct before
+    // the first fetch and prevents NTP/HTTPS network contention at startup.
+    if (!NTPClient::WaitForSync(portMAX_DELAY)) {
+        log_w("Events: NTP sync never completed");
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    log_i("Events: NTP synced, starting fetch loop");
+
+    // Google Tasks config (optional — ok to be absent)
+    GTaskConfig_t gtask = {};
+    bool has_gtask = LoadGTaskConfig(gtask);
+    if (has_gtask) {
+        log_i("GTask URL: %s", gtask.url);
+    } else {
+        log_i("GTask config missing or invalid — task fetching disabled");
+    }
 
     while (true) {
-        // Non-blocking acquire — if NTP is currently syncing, back off 10 s.
         if (!NTPClient::TakeNetworkLock(0)) {
             log_w("Events: network busy, retry in 10s");
             vTaskDelay(pdMS_TO_TICKS(10000));
             continue;
         }
 
-        bool ok = self->FetchAndParse();
+        bool ok = self->FetchAndParse(full_url);
+
+        // Fetch tasks immediately after events, while lock is still held
+        if (has_gtask) {
+            self->FetchAndParseTasks(gtask.url, gtask.token);
+        }
+
         NTPClient::GiveNetworkLock();
 
         uint32_t delay = ok ? CONFIG_EVENTS_POLL_INTERVAL_MS : CONFIG_EVENTS_RETRY_INTERVAL_MS;
@@ -107,7 +229,7 @@ void IncomingEvents::EventTask(void* arg) {
 // Fix: use open()+fetch_headers() to read ONLY headers, never touch the body
 // of a redirect response, then reissue to the Location URL manually.
 // ---------------------------------------------------------------------------
-bool IncomingEvents::FetchAndParse() {
+bool IncomingEvents::FetchAndParse(const char* start_url) {
     char* resp = static_cast<char*>(
         heap_caps_malloc(RESPONSE_BUF_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     if (!resp) {
@@ -115,7 +237,7 @@ bool IncomingEvents::FetchAndParse() {
         return false;
     }
 
-    const char* url = CONFIG_EVENTS_URL;
+    const char* url = start_url;
     char location_buf[512] = {};
     int  resp_len = 0;
     int  status   = 0;
@@ -192,7 +314,136 @@ bool IncomingEvents::FetchAndParse() {
 }
 
 // ---------------------------------------------------------------------------
-// JSON parsing
+// HTTP fetch for Google Tasks — POST {"token":"..."} on first hop,
+// follow any 3xx redirect as GET (RFC standard for POST redirects).
+// ---------------------------------------------------------------------------
+bool IncomingEvents::FetchAndParseTasks(const char* start_url, const char* token) {
+    // Build the JSON payload once; token is bounded to 128 chars, no JSON-special chars expected
+    char post_body[160];
+    int  post_body_len = snprintf(post_body, sizeof(post_body), "{\"token\":\"%s\"}", token);
+
+    char* resp = static_cast<char*>(
+        heap_caps_malloc(RESPONSE_BUF_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!resp) { log_e("GTask: alloc failed"); return false; }
+
+    const char*              url    = start_url;
+    char                     loc[512] = {};
+    esp_http_client_method_t method = HTTP_METHOD_POST;
+    int  resp_len = 0;
+    int  status   = 0;
+    bool got_200  = false;
+
+    for (int hop = 0; hop <= 5; hop++) {
+        HttpCtx ctx = {};
+        ctx.buf = resp;
+
+        esp_http_client_config_t cfg = {};
+        cfg.url                   = url;
+        cfg.crt_bundle_attach     = esp_crt_bundle_attach;
+        cfg.event_handler         = http_event_handler;
+        cfg.user_data             = &ctx;
+        cfg.timeout_ms            = 15000;
+        cfg.method                = method;
+        cfg.max_redirection_count = 0;
+
+        esp_http_client_handle_t client = esp_http_client_init(&cfg);
+        if (!client) { log_e("GTask: client init failed"); break; }
+
+        bool is_post = (method == HTTP_METHOD_POST);
+        if (is_post) {
+            esp_http_client_set_header(client, "Content-Type", "application/json");
+        }
+
+        // Open: pass body length so Content-Length header is set correctly on POST
+        int write_len = is_post ? post_body_len : 0;
+        if (esp_http_client_open(client, write_len) != ESP_OK) {
+            log_e("GTask: open failed");
+            esp_http_client_cleanup(client);
+            break;
+        }
+
+        if (is_post) {
+            esp_http_client_write(client, post_body, post_body_len);
+        }
+
+        esp_http_client_fetch_headers(client);
+        status = esp_http_client_get_status_code(client);
+
+        if (status == 301 || status == 302 || status == 303 ||
+            status == 307 || status == 308) {
+            esp_http_client_close(client);
+            esp_http_client_cleanup(client);
+            if (ctx.location[0] == '\0') { log_e("GTask: redirect without Location"); break; }
+            strncpy(loc, ctx.location, sizeof(loc) - 1);
+            url    = loc;
+            method = HTTP_METHOD_GET;   // POST redirect followed as GET (RFC 7231 §6.4)
+            log_i("GTask redirect (%d) -> %s", status, url);
+            continue;
+        }
+
+        if (status == 200) {
+            int n;
+            while (resp_len < RESPONSE_BUF_SIZE - 1) {
+                n = esp_http_client_read(client, resp + resp_len,
+                                          RESPONSE_BUF_SIZE - resp_len - 1);
+                if (n <= 0) break;
+                resp_len += n;
+            }
+            resp[resp_len] = '\0';
+            got_200 = true;
+        } else {
+            log_e("GTask: HTTP status=%d", status);
+        }
+        esp_http_client_close(client);
+        esp_http_client_cleanup(client);
+        break;
+    }
+
+    bool result = false;
+    if (got_200) {
+        log_i("GTask response %d bytes", resp_len);
+        result = ParseTasksResponse(resp, resp_len);
+    }
+    heap_caps_free(resp);
+    return result;
+}
+
+bool IncomingEvents::ParseTasksResponse(const char* json, int len) {
+    cJSON* root = cJSON_ParseWithLength(json, len);
+    if (!root) { log_e("GTask: JSON parse error"); return false; }
+
+    cJSON* arr = cJSON_GetObjectItemCaseSensitive(root, "tasks");
+    if (!cJSON_IsArray(arr)) {
+        log_w("GTask: expected object with 'tasks' array");
+        cJSON_Delete(root);
+        return false;
+    }
+
+    std::vector<IncomingTask_t> new_tasks;
+    int count = cJSON_GetArraySize(arr);
+    for (int i = 0; i < count; i++) {
+        cJSON* item  = cJSON_GetArrayItem(arr, i);
+        cJSON* title = cJSON_GetObjectItemCaseSensitive(item, "title");
+        if (cJSON_IsString(title) && title->valuestring && title->valuestring[0] != '\0') {
+            IncomingTask_t t;
+            t.title = title->valuestring;
+            new_tasks.push_back(std::move(t));
+        }
+    }
+
+    log_i("Parsed %d task(s)", (int)new_tasks.size());
+
+    xSemaphoreTake(_mutex, portMAX_DELAY);
+    _tasks = std::move(new_tasks);
+    _tasks_version++;
+    xSemaphoreGive(_mutex);
+
+    cJSON_Delete(root);
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// JSON parsing (calendar events)
 // ---------------------------------------------------------------------------
 bool IncomingEvents::ParseResponse(const char* json, int len) {
     cJSON* root = cJSON_ParseWithLength(json, len);

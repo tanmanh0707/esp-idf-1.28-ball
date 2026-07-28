@@ -62,10 +62,20 @@
 #define CONFIG_HOMESCREEN_IMAGE_INTERVAL_MS 60000
 
 /* Incoming Events Configuration */
-#define CONFIG_EVENTS_URL \
-    "https://script.google.com/macros/s/AKfycbwVKQzgvdtpKvMqds2vDujSFo5MMN7jmiI0WDkYK4H2rnKmT9IMIcLo5OFGZ73hoEP7ZA/exec?device=esp32-001&key=123456789"
 #define CONFIG_EVENTS_POLL_INTERVAL_MS      (60 * 60 * 1000)   /* 1 hour  — on success */
 #define CONFIG_EVENTS_RETRY_INTERVAL_MS     ( 5 * 60 * 1000)   /* 5 minutes — on failure */
+
+/* HomeScreen NVS config  (namespace "homescreen_cfg") */
+#define CONFIG_HOMESCREEN_NVS_NS            "homescreen_cfg"
+#define CONFIG_HOMESCREEN_NVS_BG_DUR        "bg_dur"
+#define CONFIG_HOMESCREEN_NVS_TASK_DUR      "task_dur"
+#define CONFIG_HOMESCREEN_DEFAULT_BG_DUR    60     /* seconds */
+#define CONFIG_HOMESCREEN_DEFAULT_TASK_DUR  15     /* seconds */
+
+/* Google Tasks NVS config  (namespace "gtask_cfg") */
+#define CONFIG_GTASK_NVS_NS                 "gtask_cfg"
+#define CONFIG_GTASK_NVS_URL                "url"
+#define CONFIG_GTASK_NVS_TOKEN              "token"
 
 /* Application */
 #define BLOCKING                      true

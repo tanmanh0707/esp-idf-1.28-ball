@@ -27,13 +27,12 @@ public:
     static bool WaitForConnection(uint32_t timeout_ms = portMAX_DELAY);
 
     void SaveCredentials(const char* ssid, const char* pass);
+    bool LoadCredentials(char* ssid, size_t ssid_len, char* pass, size_t pass_len);
 
 private:
     WiFiManager();
     WiFiManager(const WiFiManager&)            = delete;
     WiFiManager& operator=(const WiFiManager&) = delete;
-
-    bool LoadCredentials(char* ssid, size_t ssid_len, char* pass, size_t pass_len);
 
     void StartAPMode();
     void StartWebServer();

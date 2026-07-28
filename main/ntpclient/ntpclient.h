@@ -3,6 +3,7 @@
 #include <ctime>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
+#include <freertos/event_groups.h>
 
 typedef enum {
     NTP_STATUS_IDLE            = 0,
@@ -24,6 +25,9 @@ public:
     // Blocks until WiFi has an IP (delegates to WiFiManager::WaitForConnection).
     static bool WaitForWifi(uint32_t timeout_ms = portMAX_DELAY);
 
+    // Blocks until NTP has completed its first successful sync (or timeout).
+    static bool WaitForSync(uint32_t timeout_ms = portMAX_DELAY);
+
     // Network-access mutex shared with IncomingEvents.
     // Non-blocking (timeout_ms=0): returns false immediately if busy.
     static bool TakeNetworkLock(uint32_t timeout_ms = 0);
@@ -41,5 +45,6 @@ private:
 
     static void NTPTask(void* arg);
     static void time_sync_notification_cb(struct timeval* tv);
-    static SemaphoreHandle_t _network_lock;  // binary semaphore shared with IncomingEvents
+    static SemaphoreHandle_t  _network_lock;  // binary semaphore shared with IncomingEvents
+    static EventGroupHandle_t _synced_event;  // BIT0 set when first NTP sync completes
 };

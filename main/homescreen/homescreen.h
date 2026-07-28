@@ -1,5 +1,6 @@
 #pragma once
 #include "config_app.h"
+#include "incoming_events.h"
 #include "LovyanGFX.hpp"
 #include <string>
 #include <vector>
@@ -27,6 +28,7 @@ private:
                      uint16_t bottom_color);
     void DrawEventsBadge();
     void DrawClock(const struct tm* timeinfo);
+    void DrawTasksScreen(const std::vector<IncomingTask_t>& tasks);
 
     lgfx::LGFX_Device* _lcd;
     HomeScreenType_e    _type;

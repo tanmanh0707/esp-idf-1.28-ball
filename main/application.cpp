@@ -1,5 +1,6 @@
 #include "application.h"
 #include "log_app.h"
+#include <esp_log.h>
 #include "gifplayer.h"
 #include "sdcard.h"
 #include "speaker.h"
@@ -24,7 +25,9 @@ void Application::Start() {
     DISPLAY_ClearScreen();
 
     log_i("Application started");
-
+#if 0
+    esp_log_level_set("esp_netif_sntp", ESP_LOG_DEBUG);
+#endif
     WiFiManager::GetInstance().Init();
     NTPClient::GetInstance().Init();
     IncomingEvents::GetInstance().Init();
